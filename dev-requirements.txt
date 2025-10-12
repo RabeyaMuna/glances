@@ -80,7 +80,7 @@ defusedxml==0.7.1
     # via semgrep
 distlib==0.4.0
     # via virtualenv
-docutils==0.21.2
+docutils==0.22.2
     # via
     #   rstcheck-core
     #   sphinx
