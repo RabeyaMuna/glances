@@ -1111,6 +1111,23 @@ class GlancesPluginModel:
             ret = unicode_message('ARROW_DOWN', self.args)
         return ret
 
+    class _CheckWrapper:
+        def __init__(self, fct):
+            self.fct = fct
+
+        def __call__(self, obj, *args, **kw):
+            if obj.is_enabled() and (obj.refresh_timer.finished() or obj.stats == obj.get_init_value):
+                # Run the method
+                ret = self.fct(obj, *args, **kw)
+                # Reset the timer
+                obj.refresh_timer.set(obj.get_refresh())
+                obj.refresh_timer.reset()
+            else:
+                # No need to call the method
+                # Return the last result available
+                ret = obj.stats
+            return ret
+
     def _check_decorator(fct):
         """Check decorator for update method.
 
@@ -1118,59 +1135,52 @@ class GlancesPluginModel:
         - if the plugin is enabled.
         - if the refresh_timer is finished
         """
+        return _CheckWrapper(fct)
 
-        def wrapper(self, *args, **kw):
-            if self.is_enabled() and (self.refresh_timer.finished() or self.stats == self.get_init_value):
-                # Run the method
-                ret = fct(self, *args, **kw)
-                # Reset the timer
-                self.refresh_timer.set(self.get_refresh())
-                self.refresh_timer.reset()
+    class _LogResultWrapper:
+        def __init__(self, fct):
+            self.fct = fct
+
+        def __call__(self, *args, **kw):
+            counter = Counter()
+            ret = self.fct(*args, **kw)
+            duration = counter.get()
+            if len(args) > 0:
+                class_name = args[0].__class__.__name__
+                class_module = args[0].__class__.__module__
             else:
-                # No need to call the method
-                # Return the last result available
-                ret = self.stats
+                class_name = getattr(self.fct, "__qualname__", repr(self.fct))
+                class_module = getattr(self.fct, "__module__", "")
+            logger.debug(f"{class_name} {class_module} {self.fct.__name__} return {ret} in {duration} seconds")
             return ret
-
-        return wrapper
 
     def _log_result_decorator(fct):
         """Log (DEBUG) the result of the function fct."""
+        return _LogResultWrapper(fct)
 
-        def wrapper(*args, **kw):
-            counter = Counter()
-            ret = fct(*args, **kw)
-            duration = counter.get()
-            class_name = args[0].__class__.__name__
-            class_module = args[0].__class__.__module__
-            logger.debug(f"{class_name} {class_module} {fct.__name__} return {ret} in {duration} seconds")
-            return ret
+    class _ManageRateWrapper:
+        def __init__(self, fct):
+            self.fct = fct
 
-        return wrapper
-
-    def _manage_rate(fct):
-        """Manage rate decorator for update method."""
-
-        def compute_rate(self, stat, stat_previous):
+        def compute_rate(self, inst, stat, stat_previous):
             if stat_previous is None:
                 return stat
 
             # 1) set _gauge for all the rate fields
             # 2) compute the _rate_per_sec
             # 3) set the original field to the delta between the current and the previous value
-            for field in self.fields_description:
+            for field in inst.fields_description:
                 # For all the field with the rate=True flag
-                # if 'rate' in self.fields_description[field] and self.fields_description[field]['rate'] is True:
-                if self.fields_description[field].get('rate', False):
+                if inst.fields_description[field].get('rate', False):
                     # Create a new metadata with the gauge
-                    stat['time_since_update'] = self.time_since_last_update
+                    stat['time_since_update'] = inst.time_since_last_update
                     stat[field + '_gauge'] = stat[field]
                     if field + '_gauge' in stat_previous and stat[field] and stat_previous[field + '_gauge']:
                         # The stat becomes the delta between the current and the previous value
                         stat[field] = stat[field] - stat_previous[field + '_gauge']
                         # Compute the rate
-                        if self.time_since_last_update > 0:
-                            stat[field + '_rate_per_sec'] = stat[field] // self.time_since_last_update
+                        if inst.time_since_last_update > 0:
+                            stat[field + '_rate_per_sec'] = stat[field] // inst.time_since_last_update
                         else:
                             stat[field] = 0
                             stat[field + '_rate_per_sec'] = 0
@@ -1180,37 +1190,39 @@ class GlancesPluginModel:
                         stat[field + '_rate_per_sec'] = 0
             return stat
 
-        def compute_rate_on_list(self, stats, stats_previous):
+        def compute_rate_on_list(self, inst, stats, stats_previous):
             if stats_previous is None:
                 return stats
 
             for stat in stats:
-                olds = [i for i in stats_previous if i[self.get_key()] == stat[self.get_key()]]
+                olds = [i for i in stats_previous if i[inst.get_key()] == stat[inst.get_key()]]
                 if len(olds) == 1:
-                    compute_rate(self, stat, olds[0])
+                    self.compute_rate(inst, stat, olds[0])
             return stats
 
-        def wrapper(self, *args, **kw):
+        def __call__(self, inst, *args, **kw):
             # Call the father method
-            stats = fct(self, *args, **kw)
+            stats = self.fct(inst, *args, **kw)
 
             # Get the time since the last update
-            self.time_since_last_update = getTimeSinceLastUpdate(self.plugin_name)
+            inst.time_since_last_update = getTimeSinceLastUpdate(inst.plugin_name)
 
             # Compute the rate
             if isinstance(stats, dict):
                 # Stats is a dict
-                compute_rate(self, stats, self.stats_previous)
+                self.compute_rate(inst, stats, inst.stats_previous)
             elif isinstance(stats, list):
                 # Stats is a list
-                compute_rate_on_list(self, stats, self.stats_previous)
+                self.compute_rate_on_list(inst, stats, inst.stats_previous)
 
             # Memorized the current stats for next run
-            self.stats_previous = copy.deepcopy(stats)
+            inst.stats_previous = copy.deepcopy(stats)
 
             return stats
 
-        return wrapper
+    def _manage_rate(fct):
+        """Manage rate decorator for update method."""
+        return _ManageRateWrapper(fct)
 
     # Mandatory to call the decorator in child classes
     _check_decorator = staticmethod(_check_decorator)

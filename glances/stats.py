@@ -16,7 +16,7 @@ import threading
 import traceback
 from importlib import import_module
 
-from glances.globals import exports_path, plugins_path, sys_path, weak_lru_cache
+from glances.globals import exports_path, plugins_path, sys_path
 from glances.logger import logger
 from glances.timer import Counter
 
@@ -268,7 +268,6 @@ please rename it to "{plugin_path.capitalize()}Plugin"'
 
     # It's a weak cache to avoid updating the same plugin too often
     # Note: the function always return None
-    @weak_lru_cache(maxsize=1, ttl=1)
     def update_plugin(self, p):
         """Update stats, history and views for the given plugin name p"""
         self._plugins[p].update()

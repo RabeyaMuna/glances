@@ -29,9 +29,12 @@ from glances.filter import GlancesFilter, GlancesFilterList
 from glances.globals import LINUX, WINDOWS, pretty_date, string_value_to_float, subsample
 from glances.main import GlancesMain
 from glances.outputs.glances_bars import Bar
-from glances.plugins.fs.zfs import zfs_enable, zfs_stats
+
+# NOTE: Avoid importing zfs plugin at module import time to prevent side-effects
+# that may spawn multiprocessing workers which are not pickleable in test
+# collection context. Import the zfs plugin lazily inside tests when needed.
+# from glances.plugins.fs.zfs import zfs_enable, zfs_stats
 from glances.plugins.plugin.model import GlancesPluginModel
-from glances.stats import GlancesStats
 from glances.thresholds import (
     GlancesThresholdCareful,
     GlancesThresholdCritical,
@@ -43,13 +46,104 @@ from glances.thresholds import (
 # Global variables
 # =================
 
-# Init Glances core
-core = GlancesMain(args_begin_at=2)
-test_config = core.get_config()
-test_args = core.get_args()
 
-# Init Glances stats
-stats = GlancesStats(config=test_config, args=test_args)
+# Defer instantiation of Glances core and stats to runtime to avoid
+# side-effects (such as starting multiprocessing workers) during
+# module import (which breaks test collection on some CI environments).
+class _LazyValue:
+    def __init__(self, factory):
+        self._factory = factory
+        self._value = None
+
+    def _ensure(self):
+        if self._value is None:
+            self._value = self._factory()
+
+    def __getattr__(self, name):
+        self._ensure()
+        return getattr(self._value, name)
+
+    def __getitem__(self, key):
+        self._ensure()
+        return self._value[key]
+
+    def __iter__(self):
+        self._ensure()
+        return iter(self._value)
+
+    def __repr__(self):
+        self._ensure()
+        return repr(self._value)
+
+    def __str__(self):
+        self._ensure()
+        return str(self._value)
+
+    def __call__(self, *args, **kwargs):
+        self._ensure()
+        return self._value(*args, **kwargs)
+
+
+class _LazyCore:
+    def __init__(self):
+        self._real = None
+
+    def _init(self):
+        if self._real is None:
+            # Instantiate GlancesMain only when actually needed
+            self._real = GlancesMain(args_begin_at=2)
+
+    def __getattr__(self, name):
+        self._init()
+        return getattr(self._real, name)
+
+    def __setattr__(self, name, value):
+        if name == '_real':
+            object.__setattr__(self, name, value)
+        else:
+            self._init()
+            setattr(self._real, name, value)
+
+    def __repr__(self):
+        self._init()
+        return repr(self._real)
+
+
+class _LazyStats:
+    def __init__(self):
+        self._real = None
+
+    def _init(self):
+        if self._real is None:
+            # Import and instantiate GlancesStats only when needed
+            from glances.stats import GlancesStats as _GlancesStats
+
+            cfg = core.get_config()
+            args = core.get_args()
+            self._real = _GlancesStats(config=cfg, args=args)
+
+    def __getattr__(self, name):
+        self._init()
+        return getattr(self._real, name)
+
+    def __setattr__(self, name, value):
+        if name == '_real':
+            object.__setattr__(self, name, value)
+        else:
+            self._init()
+            setattr(self._real, name, value)
+
+    def __repr__(self):
+        self._init()
+        return repr(self._real)
+
+
+# Lazy instances used by tests; these will instantiate the real objects
+# on first access during test runtime rather than at import time.
+core = _LazyCore()
+test_config = _LazyValue(lambda: core.get_config())
+test_args = _LazyValue(lambda: core.get_args())
+stats = _LazyStats()
 
 # Unitest class
 # ==============
