@@ -68,6 +68,7 @@ class TestGlances(unittest.TestCase):
 
         # Reset all the stats, history and views
         plugin_instance = stats.get_plugin(plugin)
+        self.assertIsNotNone(plugin_instance, msg=f'Plugin {plugin} not found')
         plugin_instance.reset()  # reset stats
         plugin_instance.reset_views()  # reset views
         plugin_instance.reset_stats_history()  # reset history
@@ -212,8 +213,10 @@ class TestGlances(unittest.TestCase):
         plugins_to_check = ['system', 'cpu', 'load', 'mem', 'memswap', 'network', 'diskio', 'fs']
         print('INFO: [TEST_001] Check the mandatory plugins list: {}'.format(', '.join(plugins_to_check)))
         plugins_list = stats.getPluginsList()
+        self.assertIsNotNone(plugins_list, msg='plugins list is None')
+        self.assertGreater(len(plugins_list), 0, msg='No plugins registered in stats; ensure GlancesStats initializes plugins')
         for plugin in plugins_to_check:
-            self.assertTrue(plugin in plugins_list)
+            self.assertTrue(plugin in plugins_list, msg=f'Missing plugin: {plugin}')
 
     def test_002_system(self):
         """Check SYSTEM plugin."""
@@ -229,7 +232,9 @@ class TestGlances(unittest.TestCase):
         """Check CPU plugin."""
         stats_to_check = ['system', 'user', 'idle']
         print('INFO: [TEST_003] Check mandatory CPU stats: {}'.format(', '.join(stats_to_check)))
-        stats_grab = stats.get_plugin('cpu').get_raw()
+        plugin = stats.get_plugin('cpu')
+        self.assertIsNotNone(plugin, msg='cpu plugin not found')
+        stats_grab = plugin.get_raw()
         for stat in stats_to_check:
             # Check that the key exist
             self.assertTrue(stat in stats_grab, msg=f'Cannot find key: {stat}')
@@ -279,14 +284,18 @@ class TestGlances(unittest.TestCase):
     def test_007_network(self):
         """Check NETWORK plugin."""
         print('INFO: [TEST_007] Check NETWORK stats')
-        stats_grab = stats.get_plugin('network').get_raw()
+        plugin = stats.get_plugin('network')
+        self.assertIsNotNone(plugin, msg='network plugin not found')
+        stats_grab = plugin.get_raw()
         self.assertTrue(isinstance(stats_grab, list), msg='Network stats is not a list')
         print(f'INFO: NETWORK stats: {stats_grab}')
 
     def test_008_diskio(self):
         """Check DISKIO plugin."""
         print('INFO: [TEST_008] Check DISKIO stats')
-        stats_grab = stats.get_plugin('diskio').get_raw()
+        plugin = stats.get_plugin('diskio')
+        self.assertIsNotNone(plugin, msg='diskio plugin not found')
+        stats_grab = plugin.get_raw()
         self.assertTrue(isinstance(stats_grab, list), msg='DiskIO stats is not a list')
         print(f'INFO: diskio stats: {stats_grab}')
 
@@ -678,6 +687,8 @@ class TestGlances(unittest.TestCase):
         plugin = 'diskio'
         field = 'read_bytes_rate_per_sec'
         plugin_instance = stats.get_plugin(plugin)
+        if plugin_instance is None:
+            self.skipTest(f'{plugin} plugin not available')
         if len(plugin_instance.get_views()) == 0 or not test_config.get_bool_value(plugin, 'hide_zero', False):
             # No diskIO interface, test can not be done
             return
