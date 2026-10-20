@@ -591,12 +591,14 @@ def exit_after(seconds, default=None):
     """Exit the function if it takes more than 'seconds' seconds to complete.
     In this case, return the value of 'default' (default: None)."""
 
-    def handler(q, func, args, kwargs):
-        q.put(func(*args, **kwargs))
-
     def decorator(func):
         def wraps(*args, **kwargs):
             q = Queue()
+
+            # Define handler as a top-level function to make it pickleable
+            def handler(q, func, args, kwargs):
+                q.put(func(*args, **kwargs))
+
             p = Process(target=handler, args=(q, func, args, kwargs))
             p.start()
             p.join(timeout=seconds)

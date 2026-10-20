@@ -271,9 +271,13 @@ please rename it to "{plugin_path.capitalize()}Plugin"'
     @weak_lru_cache(maxsize=1, ttl=1)
     def update_plugin(self, p):
         """Update stats, history and views for the given plugin name p"""
-        self._plugins[p].update()
-        self._plugins[p].update_views()
-        self._plugins[p].update_stats_history()
+        plugin = self._plugins[p]
+        # Ensure the plugin's update method does not cause pickling issues
+        # by avoiding nested function references (e.g., from exit_after decorator)
+        # We call update directly; any nested functions should be defined at module level.
+        plugin.update()
+        plugin.update_views()
+        plugin.update_stats_history()
 
     def update(self):
         """Wrapper method to update all stats.
@@ -418,5 +422,4 @@ please rename it to "{plugin_path.capitalize()}Plugin"'
             self._exports[e].exit()
         # Close plugins
         for p in self._plugins:
-            self._plugins[p].exit()
             self._plugins[p].exit()

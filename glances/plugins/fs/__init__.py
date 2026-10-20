@@ -219,7 +219,7 @@ class FsPlugin(GlancesPluginModel):
         # Loop over fs
         if self.short_system_name in ('windows', 'esxi'):
             # Windows or ESXi tips
-            for fs, fs_value in fs_stat.item():
+            for fs, fs_value in fs_stat.items():
                 # Do not take hidden file system into account
                 if not self.is_display(fs):
                     continue
@@ -242,7 +242,7 @@ class FsPlugin(GlancesPluginModel):
                 stats.append(fs_current)
         else:
             # Default behavior
-            for fs, fs_value in fs_stat.item():
+            for fs, fs_value in fs_stat.items():
                 # Do not take hidden file system into account
                 if not self.is_display_any(fs, fs_value['device_name']):
                     continue
